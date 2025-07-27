@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Web Chat</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #000000;
+            --border-color: #cccccc;
+            --input-bg: #ffffff;
+            --messages-bg: #f9f9f9;
+            --button-bg: #007bff;
+            --button-text: #ffffff;
+        }
+        
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --text-color: #e0e0e0;
+            --border-color: #444444;
+            --input-bg: #2d2d2d;
+            --messages-bg: #252525;
+            --button-bg: #0056b3;
+            --button-text: #ffffff;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        h1 {
+            margin-bottom: 30px;
+            font-weight: 300;
+        }
+        
+        .auth-section {
+             margin-bottom: 20px;
+             display: flex;
+             justify-content: center;
+             gap: 20px;
+             flex-wrap: wrap;
+         }
+         
+         .auth-field {
+             display: flex;
+             flex-direction: column;
+             align-items: center;
+             gap: 5px;
+         }
+         
+         .auth-field label {
+             font-weight: 500;
+             font-size: 14px;
+         }
+         
+         .password-container {
+             position: relative;
+         }
+         
+         .password-status {
+             position: absolute;
+             right: 8px;
+             top: 50%;
+             transform: translateY(-50%);
+             font-size: 12px;
+             pointer-events: none;
+         }
+         
+         .password-valid {
+             color: #28a745;
+         }
+         
+         .password-invalid {
+             color: #dc3545;
+         }
+        
+        input[type="text"], input[type="password"] {
+             background-color: var(--input-bg);
+             color: var(--text-color);
+             border: 1px solid var(--border-color);
+             padding: 8px 12px;
+             border-radius: 4px;
+             font-size: 14px;
+             transition: border-color 0.3s;
+         }
+         
+         input[type="text"]:focus, input[type="password"]:focus {
+             outline: none;
+             border-color: var(--button-bg);
+         }
+         
+         #usernameInput, #passwordInput {
+             width: 200px;
+         }
+         
+         #passwordInput {
+             padding-right: 30px;
+         }
+        
+        #messages {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            background-color: var(--messages-bg);
+            margin: 20px 0;
+            border-radius: 6px;
+            text-align: left;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        
+        .input-section {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        #messageInput {
+            width: 400px;
+            max-width: 60vw;
+        }
+        
+        button {
+            background-color: var(--button-bg);
+            color: var(--button-text);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            opacity: 0.9;
+        }
+        
+        .dark-mode-toggle {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 8px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+            user-select: none;
+        }
+        
+        .dark-mode-toggle:hover {
+            opacity: 0.8;
+        }
+        
+        /* Message styling */
+        .message-line {
+            margin-bottom: 8px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        
+        .message-content {
+            flex: 1;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        
+        .message-media {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            min-width: 80px;
+        }
+        
+        .embedded-image {
+            max-width: 80px;
+            max-height: 60px;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            transition: opacity 0.2s;
+        }
+        
+        .embedded-image:hover {
+            opacity: 0.8;
+        }
+        
+        /* Popup styles */
+        .image-popup {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            cursor: pointer;
+        }
+        
+        .popup-content {
+            position: relative;
+            max-width: 90vw;
+            max-height: 90vh;
+            cursor: default;
+        }
+        
+        .popup-image {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        
+        .popup-close {
+            position: absolute;
+            top: -40px;
+            right: 0;
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Link styling */
+        .message-content a {
+            color: var(--button-bg);
+            text-decoration: underline;
+        }
+        
+        .message-content a:hover {
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Discord Web Chat</h1>
+        
+        <div class="auth-section">
+             <div class="auth-field">
+                 <label for="usernameInput">Username:</label>
+                 <input type="text" id="usernameInput" placeholder="Enter your username" value="WebUser">
+             </div>
+             <div class="auth-field">
+                 <label for="passwordInput">Password:</label>
+                 <div class="password-container">
+                     <input type="password" id="passwordInput" placeholder="Enter password">
+                     <span class="password-status" id="passwordStatus"></span>
+                 </div>
+             </div>
+         </div>
+        
+        <pre id="messages"></pre>
+        
+        <div class="input-section">
+            <input type="text" id="messageInput" placeholder="Type your message here...">
+            <button id="sendButton">Send</button>
+        </div>
+    </div>
+    
+    <div class="dark-mode-toggle" id="darkModeToggle">🌙</div>
+    
+    <!-- Image popup -->
+    <div class="image-popup" id="imagePopup">
+        <div class="popup-content">
+            <button class="popup-close" id="popupClose">×</button>
+            <img class="popup-image" id="popupImage" src="" alt="">
+        </div>
+    </div>
+    
+    <script>
+        let lastMessageCount = 0;
+        let isPasswordValid = false;
+        let audioContext = null;
+        
+        // Initialize audio context
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+        
+        // Play notification sound
+        function playNotificationSound() {
+            if (!audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            // Pleasant notification tone (C major chord)
+            oscillator.frequency.setValueAtTime(523.25, audioContext.currentTime); // C5
+            oscillator.type = 'sine';
+            
+            // Gentle volume envelope
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.1, audioContext.currentTime + 0.05);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.3);
+            
+            // Add a second harmonic for richness
+            const oscillator2 = audioContext.createOscillator();
+            const gainNode2 = audioContext.createGain();
+            
+            oscillator2.connect(gainNode2);
+            gainNode2.connect(audioContext.destination);
+            
+            oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime); // E5
+            oscillator2.type = 'sine';
+            
+            gainNode2.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode2.gain.linearRampToValueAtTime(0.05, audioContext.currentTime + 0.05);
+            gainNode2.gain.exponentialRampToValueAtTime(0.005, audioContext.currentTime + 0.3);
+            
+            oscillator2.start(audioContext.currentTime);
+            oscillator2.stop(audioContext.currentTime + 0.3);
+        }
+        
+        // Cookie utilities
+        function setCookie(name, value, days = 30) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+            document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
+        }
+        
+        function getCookieValue(name) {
+            const nameEQ = name + "=";
+            const ca = document.cookie.split(';');
+            for (let i = 0; i < ca.length; i++) {
+                let c = ca[i];
+                while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+                if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+            }
+            return null;
+        }
+        
+        // Password validation
+        async function validatePassword(password) {
+            if (!password) {
+                updatePasswordStatus('', false);
+                return false;
+            }
+            
+            try {
+                const response = await fetch('/api/validate-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password })
+                });
+                
+                const result = await response.json();
+                updatePasswordStatus(password, result.valid);
+                
+                // Save password to cookie when valid
+                if (result.valid) {
+                    setCookie('chatPassword', password);
+                }
+                
+                return result.valid;
+            } catch (error) {
+                console.error('Error validating password:', error);
+                updatePasswordStatus(password, false);
+                return false;
+            }
+        }
+        
+        function updatePasswordStatus(password, isValid) {
+            const statusElement = document.getElementById('passwordStatus');
+            isPasswordValid = isValid;
+            
+            if (!password) {
+                statusElement.textContent = '';
+                statusElement.className = 'password-status';
+            } else if (isValid) {
+                statusElement.textContent = '✓';
+                statusElement.className = 'password-status password-valid';
+            } else {
+                statusElement.textContent = '✗';
+                statusElement.className = 'password-status password-invalid';
+            }
+        }
+        
+        // Dark mode functionality
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+        }
+        
+        function setCookie(name, value, days = 365) {
+            const expires = new Date(Date.now() + days * 864e5).toUTCString();
+            document.cookie = `${name}=${value}; expires=${expires}; path=/`;
+        }
+        
+        function toggleDarkMode() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            document.getElementById('darkModeToggle').textContent = newTheme === 'dark' ? '☀️' : '🌙';
+            setCookie('theme', newTheme);
+        }
+        
+        // Initialize theme
+        function initTheme() {
+            const savedTheme = getCookie('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            document.getElementById('darkModeToggle').textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+        }
+        
+        // Helper function to make links clickable
+        function makeLinksClickable(text) {
+            const urlRegex = /(https?:\/\/[^\s]+)/g;
+            return text.replace(urlRegex, '<a href="$1" target="_blank">$1</a>');
+        }
+        
+        // Helper function to render a single message
+        function renderMessage(msg) {
+            const timestamp = new Date(msg.timestamp).toLocaleTimeString();
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message-line';
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            
+            // Create message text with clickable links
+            const messageText = `[${timestamp}] ${msg.author}: ${makeLinksClickable(msg.content)}`;
+            contentDiv.innerHTML = messageText;
+            
+            messageDiv.appendChild(contentDiv);
+            
+            // Add media if present
+            if (msg.media && msg.media.length > 0) {
+                const mediaDiv = document.createElement('div');
+                mediaDiv.className = 'message-media';
+                
+                msg.media.forEach(media => {
+                    if (media.type === 'image') {
+                        const img = document.createElement('img');
+                        img.src = media.url;
+                        img.className = 'embedded-image';
+                        img.alt = media.filename;
+                        img.title = 'Click to view full size';
+                        
+                        // Add click handler for popup
+                        img.addEventListener('click', () => {
+                            showImagePopup(media.url);
+                        });
+                        
+                        mediaDiv.appendChild(img);
+                    }
+                });
+                
+                messageDiv.appendChild(mediaDiv);
+            }
+            
+            return messageDiv;
+        }
+        
+        // Function to show image popup
+        function showImagePopup(imageUrl) {
+            const popup = document.getElementById('imagePopup');
+            const popupImage = document.getElementById('popupImage');
+            
+            popupImage.src = imageUrl;
+            popup.style.display = 'flex';
+            
+            // Add click handler to open original URL in new tab
+            popupImage.onclick = () => {
+                window.open(imageUrl, '_blank');
+            };
+        }
+        
+        // Function to hide image popup
+        function hideImagePopup() {
+            const popup = document.getElementById('imagePopup');
+            popup.style.display = 'none';
+        }
+        
+        // Function to fetch and display messages
+        async function fetchMessages() {
+            const password = document.getElementById('passwordInput').value;
+            
+            if (!password) {
+                return; // Don't fetch messages without password
+            }
+            
+            try {
+                const response = await fetch('/api/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password })
+                });
+                
+                if (response.status === 401) {
+                    // Invalid password, update status
+                    updatePasswordStatus(password, false);
+                    return;
+                }
+                
+                const messages = await response.json();
+                
+                if (messages.length !== lastMessageCount) {
+                    const messagesDiv = document.getElementById('messages');
+                    const hadMessages = messagesDiv.innerHTML.trim() !== '';
+                    
+                    messagesDiv.innerHTML = ''; // Clear existing content
+                    
+                    messages.forEach(msg => {
+                        const messageElement = renderMessage(msg);
+                        messagesDiv.appendChild(messageElement);
+                    });
+                    
+                    // Auto-scroll to bottom
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    
+                    // Play notification sound for new messages
+                    if (hadMessages && messages.length > lastMessageCount && lastMessageCount > 0) {
+                        playNotificationSound();
+                    }
+                    
+                    lastMessageCount = messages.length;
+                }
+            } catch (error) {
+                console.error('Error fetching messages:', error);
+            }
+        }
+        
+        // Function to send message
+        async function sendMessage() {
+            const messageInput = document.getElementById('messageInput');
+            const usernameInput = document.getElementById('usernameInput');
+            const passwordInput = document.getElementById('passwordInput');
+            const message = messageInput.value.trim();
+            const username = usernameInput.value.trim() || 'WebUser';
+            const password = passwordInput.value;
+            
+            if (!message) return;
+            
+            if (!password) {
+                alert('Please enter password');
+                return;
+            }
+            
+            if (!isPasswordValid) {
+                alert('Invalid password');
+                return;
+            }
+            
+            // Disable send button temporarily
+            const sendButton = document.getElementById('sendButton');
+            sendButton.disabled = true;
+            sendButton.textContent = 'Sending...';
+            
+            try {
+                const response = await fetch('/api/send', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message, username, password })
+                });
+                
+                if (response.status === 401) {
+                    alert('Invalid password');
+                    updatePasswordStatus(password, false);
+                } else if (response.ok) {
+                    messageInput.value = '';
+                    // Fetch messages immediately after sending
+                    fetchMessages();
+                } else {
+                    const error = await response.json();
+                    alert('Error sending message: ' + error.error);
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('Error sending message');
+            } finally {
+                // Re-enable send button
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initTheme();
+            
+            // Event listeners
+            document.getElementById('sendButton').addEventListener('click', sendMessage);
+            document.getElementById('darkModeToggle').addEventListener('click', toggleDarkMode);
+            
+            // Add event listener for password validation
+            document.getElementById('passwordInput').addEventListener('input', function(e) {
+                const password = e.target.value;
+                validatePassword(password);
+            });
+            
+            document.getElementById('messageInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            // Add event listener for Enter key on password input
+            document.getElementById('passwordInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    document.getElementById('messageInput').focus();
+                }
+            });
+            
+            // Add event listener for Enter key on username input
+        document.getElementById('usernameInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('passwordInput').focus();
+            }
+        });
+        
+        // Initialize audio on first user interaction
+        document.addEventListener('click', initAudio, { once: true });
+        document.addEventListener('keydown', initAudio, { once: true });
+        
+        // Add popup event listeners
+        document.getElementById('popupClose').addEventListener('click', hideImagePopup);
+        document.getElementById('imagePopup').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideImagePopup();
+            }
+        });
+        
+        // Add escape key listener for popup
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                hideImagePopup();
+            }
+        });
+        
+        // Load saved password from cookie
+        const savedPassword = getCookieValue('chatPassword');
+        if (savedPassword) {
+            document.getElementById('passwordInput').value = savedPassword;
+            validatePassword(savedPassword);
+        }
+        
+        // Focus on message input
+        document.getElementById('messageInput').focus();
+            
+            // Poll for messages every 2 seconds
+            setInterval(fetchMessages, 2000);
+            
+            // Initial fetch
+            fetchMessages();
+        });
+    </script>
+</body>
+</html>
