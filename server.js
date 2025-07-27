@@ -8,6 +8,12 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Configure proxy trust if behind a proxy (like Cloudflare)
+if (process.env.TRUST_PROXY === 'true') {
+    app.set('trust proxy', true);
+    console.log('Proxy trust enabled - will use X-Forwarded-For headers for rate limiting');
+}
+
 // Store messages in memory (simple array)
 let messages = [];
 const MAX_MESSAGES = 100; // Keep only last 100 messages
@@ -23,6 +29,11 @@ const passwordRateLimit = rateLimit({
     message: { error: 'Too many password attempts, please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
+    // Disable validation checks if behind proxy
+    validate: process.env.TRUST_PROXY === 'true' ? {
+        xForwardedForHeader: false,
+        trustProxy: false
+    } : undefined
 });
 
 const messageRateLimit = rateLimit({
@@ -31,6 +42,11 @@ const messageRateLimit = rateLimit({
     message: { error: 'Too many messages, please slow down.' },
     standardHeaders: true,
     legacyHeaders: false,
+    // Disable validation checks if behind proxy
+    validate: process.env.TRUST_PROXY === 'true' ? {
+        xForwardedForHeader: false,
+        trustProxy: false
+    } : undefined
 });
 
 const typingRateLimit = rateLimit({
@@ -39,6 +55,11 @@ const typingRateLimit = rateLimit({
     message: { error: 'Typing indicator rate limit exceeded.' },
     standardHeaders: true,
     legacyHeaders: false,
+    // Disable validation checks if behind proxy
+    validate: process.env.TRUST_PROXY === 'true' ? {
+        xForwardedForHeader: false,
+        trustProxy: false
+    } : undefined
 });
 
 // Middleware
