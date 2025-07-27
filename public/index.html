@@ -582,6 +582,8 @@
         let typingUsers = new Set();
         let socket = null;
         let typingIndicatorTimeout = null;
+        let passwordValidationTimeout = null;
+        let passwordRetryTimeout = null;
         
         // Function to send typing indicator
         async function sendTypingIndicator(isTyping) {
@@ -675,8 +677,8 @@
             return null;
         }
         
-        // Password validation
-        async function validatePassword(password) {
+        // Password validation with rate limiting
+        async function validatePassword(password, isRetry = false) {
             if (!password) {
                 updatePasswordStatus('', false);
                 return false;
@@ -691,6 +693,18 @@
                     body: JSON.stringify({ password })
                 });
                 
+                if (response.status === 429) {
+                    // Rate limited, wait 3 seconds and retry
+                    if (!isRetry) {
+                        console.log('Rate limited, retrying in 3 seconds...');
+                        clearTimeout(passwordRetryTimeout);
+                        passwordRetryTimeout = setTimeout(() => {
+                            validatePassword(password, true);
+                        }, 3000);
+                    }
+                    return false;
+                }
+                
                 const result = await response.json();
                 updatePasswordStatus(password, result.valid);
                 
@@ -704,6 +718,18 @@
                 updatePasswordStatus(password, false);
                 return false;
             }
+        }
+        
+        // Debounced password validation
+        function debouncedValidatePassword(password) {
+            // Clear existing timeout
+            clearTimeout(passwordValidationTimeout);
+            clearTimeout(passwordRetryTimeout);
+            
+            // Set new timeout for 1 second
+            passwordValidationTimeout = setTimeout(() => {
+                validatePassword(password);
+            }, 1000);
         }
         
         function updatePasswordStatus(password, isValid) {
@@ -1080,7 +1106,7 @@
             
             document.getElementById('passwordInput').addEventListener('input', function(e) {
                 const password = e.target.value;
-                validatePassword(password);
+                debouncedValidatePassword(password);
             });
             
             document.getElementById('messageInput').addEventListener('keypress', function(e) {
@@ -1170,10 +1196,10 @@
             
             document.getElementById('passwordInput').addEventListener('input', function(e) {
                 const password = e.target.value;
-                const username = document.getElementById('usernameInput').value.trim() || 'elianka';
                 currentPassword = password;
+                const username = document.getElementById('usernameInput').value.trim() || 'elianka';
                 currentUsername = username;
-                validatePassword(password);
+                debouncedValidatePassword(password);
             });
             
             document.getElementById('usernameInput').addEventListener('input', function(e) {
