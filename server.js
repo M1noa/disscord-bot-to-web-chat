@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const { Client, GatewayIntentBits } = require('discord.js');
+const cors = require('cors');
 
 const rateLimit = require('express-rate-limit');
 const path = require('path');
@@ -63,6 +64,7 @@ const typingRateLimit = rateLimit({
 });
 
 // Middleware
+app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -304,6 +306,36 @@ client.on('messageCreate', async (message) => {
         }
     }
     
+    // Handle Discord replies
+    let replyTo = null;
+    if (message.reference && message.reference.messageId) {
+        try {
+            const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+            if (referencedMessage) {
+                let originalAuthor = referencedMessage.author.username;
+                let originalContent = referencedMessage.content;
+                
+                // If replying to a bot message, extract the original web username
+                if (referencedMessage.author.bot && referencedMessage.content.startsWith('**')) {
+                    const match = referencedMessage.content.match(/^\*\*([^*]+)\*\*: (.*)/);
+                    if (match) {
+                        originalAuthor = match[1]; // Extract web username
+                        originalContent = match[2]; // Extract actual message content
+                    }
+                }
+                
+                replyTo = {
+                    id: referencedMessage.id,
+                    author: originalAuthor,
+                    content: originalContent,
+                    timestamp: referencedMessage.createdAt.toISOString()
+                };
+            }
+        } catch (error) {
+            console.log('Could not fetch referenced message:', error.message);
+        }
+    }
+
     // Add message to our array
     const messageData = {
         id: message.id,
@@ -312,7 +344,8 @@ client.on('messageCreate', async (message) => {
         timestamp: new Date().toISOString(),
         source: source,
         isBot: isBot,
-        media: mediaUrls
+        media: mediaUrls,
+        replyTo: replyTo
     };
     
     messages.push(messageData);
@@ -401,10 +434,44 @@ app.post('/api/typing', typingRateLimit, async (req, res) => {
     }
 });
 
+// Purge bot messages endpoint
+app.post('/api/purge-bot-messages', messageRateLimit, (req, res) => {
+    try {
+        const { password } = req.body;
+        
+        // Validate password
+        if (password !== process.env.CHAT_PASSWORD) {
+            return res.status(401).json({ error: 'Invalid password' });
+        }
+        
+        // Count bot messages before purging
+        const botMessagesBefore = messages.filter(msg => msg.isBot).length;
+        
+        // Remove last 100 bot messages
+        let removedCount = 0;
+        for (let i = messages.length - 1; i >= 0 && removedCount < 100; i--) {
+            if (messages[i].isBot) {
+                messages.splice(i, 1);
+                removedCount++;
+            }
+        }
+        
+        console.log(`Purged ${removedCount} bot messages`);
+        res.json({ 
+            success: true, 
+            removedCount: removedCount,
+            message: `Successfully purged ${removedCount} bot messages` 
+        });
+    } catch (error) {
+        console.error('Error purging bot messages:', error);
+        res.status(500).json({ error: 'Failed to purge bot messages' });
+    }
+});
+
 // Send message to Discord with rate limiting
 app.post('/api/send', messageRateLimit, async (req, res) => {
     try {
-        const { message, username, password } = req.body;
+        const { message, username, password, replyTo } = req.body;
         
         // Validate password first
         if (password !== process.env.CHAT_PASSWORD) {
@@ -432,9 +499,31 @@ app.post('/api/send', messageRateLimit, async (req, res) => {
         // Trigger typing indicator before sending
         await triggerDiscordTyping(process.env.DISCORD_CHANNEL_ID);
         
-        // Send message to Discord with username prefix
-        const discordMessage = `**${username || 'elianka'}**: ${message}`;
-        await channel.send(discordMessage);
+        // Prepare message options
+        const messageOptions = {
+            content: `**${username || 'elianka'}**: ${message}`
+        };
+        
+        // Add Discord reply if this is a reply to a Discord message
+        if (replyTo && replyTo.id) {
+            try {
+                // Try to fetch the original message to reply to
+                const originalMessage = await channel.messages.fetch(replyTo.id);
+                if (originalMessage) {
+                    messageOptions.reply = {
+                        messageReference: originalMessage,
+                        failIfNotExists: false
+                    };
+                }
+            } catch (error) {
+                console.log('Could not fetch original message for reply, sending as regular message:', error.message);
+                // Fallback to text-based reply if Discord reply fails
+                messageOptions.content = `**${username || 'elianka'}** replying to **${replyTo.author}**: "${replyTo.content.substring(0, 100)}${replyTo.content.length > 100 ? '...' : ''}"
+${message}`;
+            }
+        }
+        
+        await channel.send(messageOptions);
         
         // Add to our local messages array
         const messageData = {
@@ -444,7 +533,8 @@ app.post('/api/send', messageRateLimit, async (req, res) => {
             timestamp: new Date().toISOString(),
             source: 'Web',
             isBot: false,
-            media: []
+            media: [],
+            replyTo: replyTo || null
         };
         
         // Remove user from typing list since they sent a message

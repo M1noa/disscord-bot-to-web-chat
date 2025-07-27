@@ -36,6 +36,12 @@
             transition: background-color 0.2s, color 0.2s;
         }
         
+        /* Disable animations when setting is off */
+        body.no-animations * {
+            animation: none !important;
+            transition: none !important;
+        }
+        
         .container {
             max-width: 800px;
             margin: 0 auto;
@@ -170,6 +176,49 @@
             padding: 8px 0;
             border-bottom: 1px solid var(--border-color);
             position: relative;
+        }
+        
+        .message-line:hover .reply-button {
+            opacity: 1;
+        }
+        
+        .reply-button {
+            position: absolute;
+            right: 8px;
+            top: 8px;
+            background: var(--button-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s;
+            color: var(--button-text);
+        }
+        
+        .reply-button:hover {
+            background: var(--button-hover);
+        }
+        
+        .reply-reference {
+            background: var(--input-bg);
+            border-left: 3px solid var(--accent-pink);
+            padding: 6px 10px;
+            margin-bottom: 6px;
+            border-radius: 0 4px 4px 0;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        
+        .reply-reference .reply-author {
+            color: var(--accent-pink);
+            font-weight: 600;
+        }
+        
+        .reply-reference .reply-content {
+            margin-top: 2px;
+            opacity: 0.8;
         }
         
         .message-line:last-child {
@@ -399,12 +448,13 @@
         }
         
         .embedded-image {
-            max-width: 80px;
-            max-height: 60px;
+            max-width: min(400px, 80vw);
+            max-height: min(300px, 60vh);
             border-radius: 4px;
             cursor: pointer;
             border: 1px solid var(--border-color);
             transition: opacity 0.2s;
+            object-fit: contain;
         }
         
         .embedded-image:hover {
@@ -466,6 +516,44 @@
             color: var(--link-hover);
         }
         
+        /* Notification styles */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--messages-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: var(--text-color);
+            font-size: 14px;
+            z-index: 1001;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            max-width: 300px;
+            word-wrap: break-word;
+        }
+        
+        .notification.show {
+            transform: translateX(0);
+        }
+        
+        .notification.error {
+            border-color: #ed4245;
+            background: rgba(237, 66, 69, 0.1);
+        }
+        
+        .notification.success {
+            border-color: #3ba55c;
+            background: rgba(59, 165, 92, 0.1);
+        }
+        
+        .notification.info {
+            border-color: var(--accent-pink);
+            background: rgba(255, 158, 181, 0.1);
+        }
+        
 
     </style>
 </head>
@@ -492,6 +580,12 @@
         <div id="typingIndicator" class="typing-indicator" style="display: none;"></div>
         
         <div class="input-section">
+            <div id="replyIndicator" style="display: none; background: var(--input-bg); padding: 8px; border-radius: 4px; margin-bottom: 8px; font-size: 12px; color: var(--text-muted); border-left: 3px solid var(--accent-pink);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span id="replyText">Replying to...</span>
+                    <button onclick="cancelReply()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px;">×</button>
+                </div>
+            </div>
             <input type="text" id="messageInput" placeholder="Type your message here...">
             <button id="sendButton">Send</button>
             <button id="settingsButton" class="settings-btn">⚙️</button>
@@ -552,6 +646,39 @@
                      <label for="playNotifications">Play Notifications:</label>
                      <input type="checkbox" id="playNotifications" checked>
                  </div>
+                 <div class="settings-item">
+                     <label for="enableAnimations">Enable Animations:</label>
+                     <input type="checkbox" id="enableAnimations" checked>
+                 </div>
+                 <div class="settings-item">
+                     <label for="showTypingIndicators">Show Typing Indicators:</label>
+                     <input type="checkbox" id="showTypingIndicators" checked>
+                 </div>
+                 <div class="settings-item">
+                     <label for="sendTypingIndicators">Send Typing Indicators:</label>
+                     <input type="checkbox" id="sendTypingIndicators" checked>
+                 </div>
+             </div>
+             
+             <div class="settings-group">
+                 <h3>Performance</h3>
+                 <div class="settings-item">
+                     <label for="fetchInterval">Message Fetch Interval:</label>
+                     <select id="fetchInterval">
+                         <option value="1000">1 second (Fast)</option>
+                         <option value="2000" selected>2 seconds (Default)</option>
+                         <option value="3000">3 seconds</option>
+                         <option value="5000">5 seconds</option>
+                         <option value="10000">10 seconds (Slow)</option>
+                     </select>
+                 </div>
+             </div>
+             
+             <div class="settings-group">
+                 <h3>Moderation</h3>
+                 <div class="settings-item">
+                     <button id="purgeButton" onclick="purgeRecentBotMessages()" style="width: 100%; background: rgba(237, 66, 69, 0.2); border-color: #ed4245; color: #ed4245;">Purge Bot Messages (Last Minute)</button>
+                 </div>
              </div>
             
             <div class="settings-group">
@@ -584,10 +711,121 @@
         let typingIndicatorTimeout = null;
         let passwordValidationTimeout = null;
         let passwordRetryTimeout = null;
+        let replyingToMessage = null;
+        let pollingInterval = null;
+        let isOnline = true;
+        let lastActivityTime = Date.now();
+        let inactivityCheckInterval = null;
+        let notificationTimeout = null;
+        
+        // Notification system
+        function showNotification(message, type = 'info', duration = 5000) {
+            // Remove existing notification
+            const existingNotification = document.querySelector('.notification');
+            if (existingNotification) {
+                existingNotification.remove();
+            }
+            
+            // Clear existing timeout
+            if (notificationTimeout) {
+                clearTimeout(notificationTimeout);
+            }
+            
+            // Create notification element
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            
+            // Add to page
+            document.body.appendChild(notification);
+            
+            // Show notification
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 100);
+            
+            // Auto-hide notification
+            notificationTimeout = setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.remove();
+                    }
+                }, 300);
+            }, duration);
+        }
+        
+        // Auto-refresh functionality
+        function updateActivityTime() {
+            lastActivityTime = Date.now();
+        }
+        
+        function startInactivityCheck() {
+            if (inactivityCheckInterval) {
+                clearInterval(inactivityCheckInterval);
+            }
+            
+            inactivityCheckInterval = setInterval(() => {
+                const timeSinceLastActivity = Date.now() - lastActivityTime;
+                const inactivityThreshold = 2.5 * 60 * 1000; // 2.5 minutes
+                
+                if (timeSinceLastActivity >= inactivityThreshold) {
+                    showNotification('Auto-refreshing due to inactivity...', 'info', 3000);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                }
+            }, 30000); // Check every 30 seconds
+        }
+        
+        // Purge recent bot messages
+        async function purgeRecentBotMessages() {
+            try {
+                const password = document.getElementById('passwordInput').value;
+                if (!password) {
+                    showNotification('Password required to purge messages', 'error');
+                    return;
+                }
+                
+                // Show confirmation dialog
+                if (!confirm('Are you sure you want to purge the last 100 bot messages? This action cannot be undone.')) {
+                    return;
+                }
+                
+                const response = await fetch('/api/purge-bot-messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        password: password
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    showNotification(`Successfully purged ${result.removedCount || 0} bot messages`, 'success');
+                    fetchMessages(); // Refresh messages
+                } else {
+                    const error = await response.json();
+                    showNotification(`Failed to purge messages: ${error.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Error purging bot messages:', error);
+                showNotification('Error purging bot messages', 'error');
+            }
+        }
         
         // Function to send typing indicator
         async function sendTypingIndicator(isTyping) {
             try {
+                const settings = JSON.parse(localStorage.getItem('chatSettings') || '{}');
+                
+                // Check if sending typing indicators is enabled
+                if (settings.sendTypingIndicators === false) {
+                    return;
+                }
+                
                 const password = document.getElementById('passwordInput').value;
                 const username = document.getElementById('usernameInput').value.trim() || 'elianka';
                 
@@ -606,6 +844,7 @@
                 });
             } catch (error) {
                 console.error('Error sending typing indicator:', error);
+                showNotification('Error sending typing indicator', 'error');
             }
         }
 
@@ -748,16 +987,45 @@
             }
         }
         
+        // Helper function to sanitize HTML and prevent XSS attacks
+        function sanitizeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
         // Helper function to make links clickable
         function makeLinksClickable(text) {
+            // First sanitize the text to prevent XSS
+            const sanitized = sanitizeHtml(text);
             const urlRegex = /(https?:\/\/[^\s]+)/g;
-            return text.replace(urlRegex, '<a href="$1" target="_blank">$1</a>');
+            return sanitized.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
         }
         
         // Helper function to render a single message
-        function renderMessage(msg) {
+        function renderMessage(msg, index) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message-line';
+            messageDiv.dataset.messageIndex = index;
+            
+            // Add reply reference if this message is a reply
+            if (msg.replyTo) {
+                const replyRef = document.createElement('div');
+                replyRef.className = 'reply-reference';
+                
+                const replyAuthor = document.createElement('div');
+                replyAuthor.className = 'reply-author';
+                replyAuthor.textContent = `@${msg.replyTo.author}`;
+                
+                const replyContent = document.createElement('div');
+                replyContent.className = 'reply-content';
+                const truncatedContent = msg.replyTo.content.substring(0, 100);
+                replyContent.textContent = truncatedContent + (msg.replyTo.content.length > 100 ? '...' : '');
+                
+                replyRef.appendChild(replyAuthor);
+                replyRef.appendChild(replyContent);
+                messageDiv.appendChild(replyRef);
+            }
             
             const headerDiv = document.createElement('div');
             headerDiv.className = 'message-header';
@@ -783,8 +1051,19 @@
             contentDiv.className = 'message-content';
             contentDiv.innerHTML = makeLinksClickable(msg.content);
             
+            // Add reply button
+            const replyButton = document.createElement('button');
+            replyButton.className = 'reply-button';
+            replyButton.textContent = '↩️';
+            replyButton.title = 'Reply to this message';
+            replyButton.onclick = (e) => {
+                e.stopPropagation();
+                setReplyTo(msg, index);
+            };
+            
             messageDiv.appendChild(headerDiv);
             messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(replyButton);
             
             // Get settings to check if images should be shown
             const settings = JSON.parse(localStorage.getItem('chatSettings') || '{}');
@@ -829,12 +1108,48 @@
             popup.style.display = 'none';
         }
         
+        // Reply functionality
+        function setReplyTo(msg, index) {
+            replyingToMessage = {
+                id: msg.id,
+                author: msg.author,
+                content: msg.content,
+                timestamp: msg.timestamp,
+                index: index
+            };
+            
+            const replyIndicator = document.getElementById('replyIndicator');
+            const replyText = document.getElementById('replyText');
+            
+            // Safely set reply text content to prevent XSS
+            replyText.innerHTML = '';
+            replyText.appendChild(document.createTextNode('Replying to '));
+            const strongElement = document.createElement('strong');
+            strongElement.textContent = msg.author;
+            replyText.appendChild(strongElement);
+            replyText.appendChild(document.createTextNode(': '));
+            const truncatedContent = msg.content.substring(0, 50);
+            replyText.appendChild(document.createTextNode(truncatedContent + (msg.content.length > 50 ? '...' : '')));
+            
+            replyIndicator.style.display = 'block';
+            
+            // Focus the message input
+            document.getElementById('messageInput').focus();
+        }
+        
+        function cancelReply() {
+            replyingToMessage = null;
+            document.getElementById('replyIndicator').style.display = 'none';
+        }
+        
         // Function to fetch messages
         async function fetchMessages() {
             const passwordInput = document.getElementById('passwordInput');
             const password = passwordInput.value;
             
             if (!password) return;
+            
+            updateActivityTime(); // Track activity
             
             try {
                 const response = await fetch('/api/messages', {
@@ -844,6 +1159,13 @@
                     },
                     body: JSON.stringify({ password })
                 });
+                
+                // Update connection status
+                if (!isOnline) {
+                    isOnline = true;
+                    console.log('Connection restored');
+                    showNotification('Connection restored', 'success', 3000);
+                }
                 
                 if (response.status === 401) {
                     updatePasswordStatus(password, false);
@@ -858,30 +1180,63 @@
                 // Update typing indicator
                 updateTypingIndicator(typing);
                 
-                if (messages.length !== lastMessageCount) {
+                // Check if messages have changed (by count or content)
+                const messagesChanged = messages.length !== lastMessageCount || 
+                    (messages.length > 0 && lastMessageId !== messages[messages.length - 1].id);
+                
+                if (messagesChanged) {
                     const messagesDiv = document.getElementById('messages');
                     const hadMessages = messagesDiv.innerHTML.trim() !== '';
+                    const wasScrolledToBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 5;
                     
                     messagesDiv.innerHTML = '';
                     
-                    messages.forEach(msg => {
-                        const messageElement = renderMessage(msg);
+                    messages.forEach((msg, index) => {
+                        const messageElement = renderMessage(msg, index);
                         messagesDiv.appendChild(messageElement);
                     });
                     
-                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    // Only auto-scroll if user was already at bottom
+                    if (wasScrolledToBottom || !hadMessages) {
+                        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    }
                     
+                    // Play notification for new messages
                     if (hadMessages && messages.length > lastMessageCount && lastMessageCount > 0) {
                         const settings = JSON.parse(localStorage.getItem('chatSettings') || '{}');
                         if (settings.playNotifications !== false) {
                             playNotificationSound();
                         }
+                        
+                        // Flash title to indicate new message
+                        if (document.hidden) {
+                            const originalTitle = document.title;
+                            document.title = '💬 New Message - ' + originalTitle;
+                            setTimeout(() => {
+                                document.title = originalTitle;
+                            }, 3000);
+                        }
                     }
                     
                     lastMessageCount = messages.length;
+                    lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
                 }
             } catch (error) {
                 console.error('Error fetching messages:', error);
+                
+                // Update connection status
+                if (isOnline) {
+                    isOnline = false;
+                    console.warn('Connection lost, retrying...');
+                    showNotification('Connection lost - retrying...', 'error', 3000);
+                }
+                
+                // Retry with exponential backoff on error
+                setTimeout(() => {
+                    if (!isOnline) {
+                        fetchMessages();
+                    }
+                }, 5000);
             }
         }
         
@@ -896,13 +1251,15 @@
             
             if (!message) return;
             
+            updateActivityTime(); // Track activity
+            
             if (!password) {
-                alert('Please enter password');
+                showNotification('Please enter password', 'error');
                 return;
             }
             
             if (!isPasswordValid) {
-                alert('Invalid password');
+                showNotification('Invalid password', 'error');
                 return;
             }
             
@@ -910,28 +1267,87 @@
             sendButton.disabled = true;
             sendButton.textContent = 'Sending...';
             
+            // Show user message immediately in chat
+            const messagesDiv = document.getElementById('messages');
+            const userMessageElement = document.createElement('div');
+            userMessageElement.className = 'message-line';
+            
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'message-header';
+            
+            const authorSpan = document.createElement('span');
+            authorSpan.className = 'message-author';
+            authorSpan.textContent = username;
+            
+            const timestampSpan = document.createElement('span');
+            timestampSpan.className = 'message-timestamp';
+            timestampSpan.textContent = new Date().toLocaleTimeString();
+            
+            const sourceSpan = document.createElement('span');
+            sourceSpan.className = 'message-source';
+            sourceSpan.textContent = 'Web (Sending...)';
+            
+            headerDiv.appendChild(authorSpan);
+            headerDiv.appendChild(timestampSpan);
+            headerDiv.appendChild(sourceSpan);
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = message;
+            
+            userMessageElement.appendChild(headerDiv);
+            userMessageElement.appendChild(contentDiv);
+            
+            messagesDiv.appendChild(userMessageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            
             try {
+                const payload = { message, username, password };
+                
+                // Add reply data if replying to a message
+                if (replyingToMessage) {
+                    payload.replyTo = {
+                        id: replyingToMessage.id,
+                        author: replyingToMessage.author,
+                        content: replyingToMessage.content,
+                        timestamp: replyingToMessage.timestamp
+                    };
+                }
+                
                 const response = await fetch('/api/send', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ message, username, password })
+                    body: JSON.stringify(payload)
                 });
                 
                 if (response.status === 401) {
-                    alert('Invalid password');
+                    showNotification('Invalid password', 'error');
                     updatePasswordStatus(password, false);
+                    // Remove the temporary message
+                    userMessageElement.remove();
                 } else if (response.ok) {
                     messageInput.value = '';
-                    fetchMessages();
+                    cancelReply(); // Clear reply state
+                    // Update the temporary message to show success
+                    sourceSpan.textContent = 'Web (Sent)';
+                    sourceSpan.style.color = 'var(--accent-pink)';
+                    setTimeout(() => {
+                        fetchMessages(); // Refresh to get the actual message from server
+                    }, 500);
+                    showNotification('Message sent successfully', 'success', 2000);
                 } else {
                     const error = await response.json();
-                    alert('Error sending message: ' + error.error);
+                    showNotification('Error sending message: ' + error.error, 'error');
+                    // Remove the temporary message
+                    userMessageElement.remove();
                 }
             } catch (error) {
                 console.error('Error sending message:', error);
-                alert('Error sending message');
+                showNotification('Error sending message', 'error');
+                // Remove the temporary message
+                userMessageElement.remove();
             } finally {
                 sendButton.disabled = false;
                 sendButton.textContent = 'Send';
@@ -940,7 +1356,15 @@
         
         // Function to update typing indicator
         function updateTypingIndicator(typingUsers) {
+            const settings = JSON.parse(localStorage.getItem('chatSettings') || '{}');
             const indicator = document.getElementById('typingIndicator');
+            
+            // Check if typing indicators are enabled
+            if (settings.showTypingIndicators === false) {
+                indicator.style.display = 'none';
+                return;
+            }
+            
             if (typingUsers && typingUsers.length > 0) {
                 let text;
                 if (typingUsers.length === 1) {
@@ -988,6 +1412,23 @@
                  document.getElementById('playNotifications').checked = settings.playNotifications;
              }
              
+             if (settings.enableAnimations !== undefined) {
+                 document.getElementById('enableAnimations').checked = settings.enableAnimations;
+                 applyAnimationSetting(settings.enableAnimations);
+             }
+             
+             if (settings.showTypingIndicators !== undefined) {
+                 document.getElementById('showTypingIndicators').checked = settings.showTypingIndicators;
+             }
+             
+             if (settings.sendTypingIndicators !== undefined) {
+                 document.getElementById('sendTypingIndicators').checked = settings.sendTypingIndicators;
+             }
+             
+             if (settings.fetchInterval) {
+                 document.getElementById('fetchInterval').value = settings.fetchInterval;
+             }
+             
              if (settings.fontSize) {
                  document.getElementById('fontSize').value = settings.fontSize;
                  applyFontSize(settings.fontSize);
@@ -1011,12 +1452,24 @@
                  darkMode: document.getElementById('darkMode').checked,
                  showImages: document.getElementById('showImages').checked,
                  playNotifications: document.getElementById('playNotifications').checked,
+                 enableAnimations: document.getElementById('enableAnimations').checked,
+                 showTypingIndicators: document.getElementById('showTypingIndicators').checked,
+                 sendTypingIndicators: document.getElementById('sendTypingIndicators').checked,
+                 fetchInterval: document.getElementById('fetchInterval').value,
                  fontSize: document.getElementById('fontSize').value,
                  borderRadius: document.getElementById('borderRadius').value,
                  customBgColor: document.getElementById('customBgColor').value
              };
-             
              localStorage.setItem('chatSettings', JSON.stringify(settings));
+             
+             // Apply animation setting immediately
+             applyAnimationSetting(settings.enableAnimations);
+             
+             // Restart polling with new interval if changed
+             if (pollingInterval) {
+                 stopPolling();
+                 startPolling();
+             }
          }
         
         function applyThemeColor(color) {
@@ -1096,32 +1549,49 @@
              applyCustomBackground(defaultColor);
              saveSettings();
          }
+         
+         function applyAnimationSetting(enableAnimations) {
+             if (enableAnimations) {
+                 document.body.classList.remove('no-animations');
+             } else {
+                 document.body.classList.add('no-animations');
+             }
+         }
         
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadSettings();
             
-            // Event listeners
-            document.getElementById('sendButton').addEventListener('click', sendMessage);
+            // Event listeners with activity tracking
+            document.getElementById('sendButton').addEventListener('click', function() {
+                updateActivityTime();
+                sendMessage();
+            });
             
             document.getElementById('passwordInput').addEventListener('input', function(e) {
+                updateActivityTime();
                 const password = e.target.value;
                 debouncedValidatePassword(password);
             });
             
             document.getElementById('messageInput').addEventListener('keypress', function(e) {
+                updateActivityTime();
                 if (e.key === 'Enter') {
                     sendMessage();
+                } else if (e.key === 'Escape') {
+                    cancelReply();
                 }
             });
             
             document.getElementById('passwordInput').addEventListener('keypress', function(e) {
+                updateActivityTime();
                 if (e.key === 'Enter') {
                     document.getElementById('messageInput').focus();
                 }
             });
             
             document.getElementById('usernameInput').addEventListener('keypress', function(e) {
+                updateActivityTime();
                 if (e.key === 'Enter') {
                     document.getElementById('passwordInput').focus();
                 }
@@ -1130,6 +1600,7 @@
             // Typing detection with rate limiting
             let lastTypingTime = 0;
             document.getElementById('messageInput').addEventListener('input', function() {
+                updateActivityTime();
                 const now = Date.now();
                 if (now - lastTypingTime > 4000) {
                     lastTypingTime = now;
@@ -1147,8 +1618,19 @@
             });
             
             // Settings event listeners
-            document.getElementById('settingsButton').addEventListener('click', openSettings);
-            document.getElementById('settingsClose').addEventListener('click', closeSettings);
+            document.getElementById('settingsButton').addEventListener('click', function() {
+                updateActivityTime();
+                openSettings();
+            });
+            document.getElementById('settingsClose').addEventListener('click', function() {
+                updateActivityTime();
+                closeSettings();
+            });
+            
+            document.getElementById('purgeButton').addEventListener('click', function() {
+                updateActivityTime();
+                purgeRecentBotMessages();
+            });
             
             // Settings change listeners
             document.getElementById('themeColor').addEventListener('change', function(e) {
@@ -1185,6 +1667,25 @@
              document.getElementById('customBgColor').addEventListener('change', function(e) {
                  applyCustomBackground(e.target.value);
                  saveSettings();
+             });
+             
+             // New settings event listeners
+             document.getElementById('enableAnimations').addEventListener('change', function(e) {
+                 applyAnimationSetting(e.target.checked);
+                 saveSettings();
+             });
+             
+             document.getElementById('showTypingIndicators').addEventListener('change', saveSettings);
+             
+             document.getElementById('sendTypingIndicators').addEventListener('change', saveSettings);
+             
+             document.getElementById('fetchInterval').addEventListener('change', function() {
+                 saveSettings();
+                 // Restart polling with new interval
+                 if (pollingInterval) {
+                     stopPolling();
+                     startPolling();
+                 }
              });
             
             // Close settings modal when clicking outside
@@ -1231,9 +1732,72 @@
             
             document.getElementById('messageInput').focus();
             
-            setInterval(fetchMessages, 2000);
+            // Start message polling and inactivity check
+            startPolling();
+            startInactivityCheck();
+            fetchMessages();
+            
+            // Add activity tracking to mouse movements and clicks
+            document.addEventListener('mousemove', updateActivityTime);
+            document.addEventListener('click', updateActivityTime);
+            document.addEventListener('scroll', updateActivityTime);
+        });
+        
+        // Polling management functions
+        function startPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            const settings = JSON.parse(localStorage.getItem('chatSettings') || '{}');
+            const interval = parseInt(settings.fetchInterval) || 2000;
+            pollingInterval = setInterval(fetchMessages, interval);
+        }
+        
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+        
+        // Handle page visibility changes to optimize polling
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                // Page is hidden, reduce polling frequency
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = setInterval(fetchMessages, 5000); // Poll every 5 seconds when hidden
+                }
+            } else {
+                // Page is visible, restore normal polling
+                startPolling();
+                fetchMessages(); // Immediate fetch when page becomes visible
+            }
+        });
+        
+        // Handle online/offline events
+        window.addEventListener('online', function() {
+            console.log('Browser is online');
+            isOnline = true;
+            startPolling();
             fetchMessages();
         });
+        
+        window.addEventListener('offline', function() {
+            console.log('Browser is offline');
+            isOnline = false;
+            stopPolling();
+        });
+        
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            stopPolling();
+        });
+        
+        // Handle focus events for immediate updates
+         window.addEventListener('focus', function() {
+             fetchMessages();
+         });
     </script>
 </body>
 </html>
