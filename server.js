@@ -23,6 +23,46 @@ const MAX_MESSAGES = 100; // Keep only last 100 messages
 let typingUsers = new Map();
 const TYPING_TIMEOUT = 5000; // 5 seconds
 
+// Bot presence management
+let lastApiRequest = Date.now();
+let isOnline = false;
+const PRESENCE_TIMEOUT = 15000; // 15 seconds of inactivity before going DND
+
+// Function to update bot presence
+async function updateBotPresence() {
+    if (!client.user) return;
+    
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastApiRequest;
+    
+    if (timeSinceLastRequest < PRESENCE_TIMEOUT && !isOnline) {
+        // Set to online
+        await client.user.setPresence({
+            status: 'online',
+            activities: [{
+                name: 'Web Chat Active',
+                type: 0 // Playing
+            }]
+        });
+        isOnline = true;
+        console.log('Bot status set to online');
+    } else if (timeSinceLastRequest >= PRESENCE_TIMEOUT && isOnline) {
+        // Set to DND
+        await client.user.setPresence({
+            status: 'dnd',
+            activities: [{
+                name: 'Web Chat Idle',
+                type: 0 // Playing
+            }]
+        });
+        isOnline = false;
+        console.log('Bot status set to DND');
+    }
+}
+
+// Check presence every 10 seconds
+setInterval(updateBotPresence, 10000);
+
 // Rate limiting configurations
 const passwordRateLimit = rateLimit({
     windowMs: 2 * 1000, // 2 seconds
@@ -83,6 +123,15 @@ const client = new Client({
 // Bot ready event
 client.once('ready', async () => {
     console.log(`Discord bot logged in as ${client.user.tag}`);
+    
+    // Set initial presence to DND
+    await client.user.setPresence({
+        status: 'dnd',
+        activities: [{
+            name: 'Web Chat Idle',
+            type: 0 // Playing
+        }]
+    });
     
     // Fetch initial message history
     await fetchDiscordHistory();
@@ -377,6 +426,9 @@ app.post('/api/messages', (req, res) => {
     if (password !== process.env.CHAT_PASSWORD) {
         return res.status(401).json({ error: 'Invalid password' });
     }
+    
+    // Update last API request time for presence management
+    lastApiRequest = Date.now();
     
     // Get current typing users (excluding expired ones)
     const now = Date.now();
