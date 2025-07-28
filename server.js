@@ -15,6 +15,34 @@ if (process.env.TRUST_PROXY === 'true') {
     console.log('Proxy trust enabled - will use X-Forwarded-For headers for rate limiting');
 }
 
+// Custom logging middleware for all requests
+app.use((req, res, next) => {
+    const startTime = Date.now();
+    const originalSend = res.send;
+    let responseSize = 0;
+    
+    // Override res.send to capture response size
+    res.send = function(data) {
+        if (data) {
+            responseSize = Buffer.byteLength(data, 'utf8');
+        }
+        return originalSend.call(this, data);
+    };
+    
+    // Log when response finishes
+    res.on('finish', () => {
+        const duration = Date.now() - startTime;
+        const ip = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 
+                  (req.connection.socket ? req.connection.socket.remoteAddress : null);
+        const userAgent = req.get('User-Agent') || 'Unknown';
+        const contentLength = req.get('Content-Length') || '0';
+        
+        console.log(`[HTTP] ${new Date().toISOString()} | ${req.method} ${req.originalUrl} | ${res.statusCode} | ${ip} | ${duration}ms | Req: ${contentLength}B | Res: ${responseSize}B | UA: ${userAgent}`);
+    });
+    
+    next();
+});
+
 // Store messages in memory (simple array)
 let messages = [];
 const MAX_MESSAGES = 100; // Keep only last 100 messages
@@ -45,7 +73,7 @@ async function updateBotPresence() {
             }]
         });
         isOnline = true;
-        console.log('Bot status set to online');
+        console.log('[BOT] Bot status set to online');
     } else if (timeSinceLastRequest >= PRESENCE_TIMEOUT && isOnline) {
         // Set to DND
         await client.user.setPresence({
@@ -56,7 +84,7 @@ async function updateBotPresence() {
             }]
         });
         isOnline = false;
-        console.log('Bot status set to DND');
+        console.log('[BOT] Bot status set to DND');
     }
 }
 
@@ -122,7 +150,7 @@ const client = new Client({
 
 // Bot ready event
 client.once('ready', async () => {
-    console.log(`Discord bot logged in as ${client.user.tag}`);
+    console.log(`[BOT] Discord bot logged in as ${client.user.tag}`);
     
     // Set initial presence to DND
     await client.user.setPresence({
@@ -253,9 +281,9 @@ async function fetchDiscordHistory() {
         // Replace current messages with history
         messages = recentMessages.slice(-MAX_MESSAGES);
         
-        console.log(`Loaded ${messages.length} messages from Discord history`);
+        console.log(`[BOT] Loaded ${messages.length} messages from Discord history`);
     } catch (error) {
-        console.error('Error fetching Discord history:', error);
+        console.error('[BOT] Error fetching Discord history:', error);
     }
 }
 
@@ -274,9 +302,9 @@ async function triggerDiscordTyping(channelId) {
         
         // Send typing indicator
         await channel.sendTyping();
-        console.log('Typing indicator sent to Discord');
+        console.log('[BOT] Typing indicator sent to Discord');
     } catch (error) {
-        console.error('Error sending typing indicator:', error);
+        console.error('[BOT] Error sending typing indicator:', error);
     }
 }
 
@@ -381,7 +409,7 @@ client.on('messageCreate', async (message) => {
                 };
             }
         } catch (error) {
-            console.log('Could not fetch referenced message:', error.message);
+            console.log('[BOT] Could not fetch referenced message:', error.message);
         }
     }
 
@@ -404,9 +432,10 @@ client.on('messageCreate', async (message) => {
         messages = messages.slice(-MAX_MESSAGES);
     }
     
-    // Message stored in local array for polling
-    
-    console.log(`Discord message: ${message.author.username}: ${message.content}`);
+    // Log the received message
+    const mediaInfo = mediaUrls.length > 0 ? ` [Media: ${mediaUrls.length} items]` : '';
+    const replyInfo = replyTo ? ` [Reply to: ${replyTo.author}]` : '';
+    console.log(`[MSG_IN] ${new Date().toISOString()} | Discord | ${message.author.username}: ${message.content}${mediaInfo}${replyInfo}`);
 });
 
 
@@ -481,7 +510,7 @@ app.post('/api/typing', typingRateLimit, async (req, res) => {
         
         res.json({ success: true });
     } catch (error) {
-        console.error('Error handling typing indicator:', error);
+        console.error('[API] Error handling typing indicator:', error);
         res.status(500).json({ error: 'Failed to handle typing indicator' });
     }
 });
@@ -508,14 +537,14 @@ app.post('/api/purge-bot-messages', messageRateLimit, (req, res) => {
             }
         }
         
-        console.log(`Purged ${removedCount} bot messages`);
+        console.log(`[API] Purged ${removedCount} bot messages`);
         res.json({ 
             success: true, 
             removedCount: removedCount,
             message: `Successfully purged ${removedCount} bot messages` 
         });
     } catch (error) {
-        console.error('Error purging bot messages:', error);
+        console.error('[API] Error purging bot messages:', error);
         res.status(500).json({ error: 'Failed to purge bot messages' });
     }
 });
@@ -568,7 +597,7 @@ app.post('/api/send', messageRateLimit, async (req, res) => {
                     };
                 }
             } catch (error) {
-                console.log('Could not fetch original message for reply, sending as regular message:', error.message);
+                console.log('[API] Could not fetch original message for reply, sending as regular message:', error.message);
                 // Fallback to text-based reply if Discord reply fails
                 messageOptions.content = `**${username || 'elianka'}** replying to **${replyTo.author}**: "${replyTo.content.substring(0, 100)}${replyTo.content.length > 100 ? '...' : ''}"
 ${message}`;
@@ -599,18 +628,20 @@ ${message}`;
             messages = messages.slice(-MAX_MESSAGES);
         }
         
-        // Message stored in local array for polling
+        // Log the sent message
+        const replyInfo = replyTo ? ` [Reply to: ${replyTo.author}]` : '';
+        console.log(`[MSG_OUT] ${new Date().toISOString()} | Web->Discord | ${username || 'elianka'}: ${message}${replyInfo}`);
         
         res.json({ success: true, message: 'Message sent' });
     } catch (error) {
-        console.error('Error sending message:', error);
+        console.error('[API] Error sending message:', error);
         res.status(500).json({ error: 'Failed to send message' });
     }
 });
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`[SERVER] Server running on http://localhost:${PORT}`);
 });
 
 // Login to Discord
