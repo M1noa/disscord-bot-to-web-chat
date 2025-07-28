@@ -17,30 +17,84 @@ if (process.env.TRUST_PROXY === 'true') {
 
 // Custom logging middleware for all requests
 app.use((req, res, next) => {
-    const startTime = Date.now();
-    const originalSend = res.send;
-    let responseSize = 0;
-    
-    // Override res.send to capture response size
-    res.send = function(data) {
-        if (data) {
-            responseSize = Buffer.byteLength(data, 'utf8');
-        }
-        return originalSend.call(this, data);
-    };
-    
-    // Log when response finishes
-    res.on('finish', () => {
-        const duration = Date.now() - startTime;
-        const ip = req.ip || req.connection.remoteAddress || req.socket.remoteAddress || 
-                  (req.connection.socket ? req.connection.socket.remoteAddress : null);
-        const userAgent = req.get('User-Agent') || 'Unknown';
-        const contentLength = req.get('Content-Length') || '0';
+    try {
+        const startTime = Date.now();
+        const originalSend = res.send;
+        const originalJson = res.json;
+        let responseSize = 0;
         
-        console.log(`[HTTP] ${new Date().toISOString()} | ${req.method} ${req.originalUrl} | ${res.statusCode} | ${ip} | ${duration}ms | Req: ${contentLength}B | Res: ${responseSize}B | UA: ${userAgent}`);
-    });
-    
-    next();
+        // Override res.send to capture response size
+        res.send = function(data) {
+            try {
+                if (data != null) {
+                    try {
+                        let dataString;
+                        if (typeof data === 'string') {
+                            dataString = data;
+                        } else if (Buffer.isBuffer(data)) {
+                            responseSize = data.length;
+                            return originalSend.call(this, data);
+                        } else {
+                            // For objects, numbers, booleans, etc. - convert to string
+                            dataString = typeof data === 'object' ? JSON.stringify(data) : String(data);
+                        }
+                        responseSize = Buffer.byteLength(dataString, 'utf8');
+                    } catch (error) {
+                        responseSize = 0; // Fallback if size calculation fails
+                        console.error('[HTTP] Error calculating response size:', error.message);
+                    }
+                }
+                return originalSend.call(this, data);
+            } catch (error) {
+                console.error('[HTTP] Error in res.send override:', error.message);
+                return originalSend.call(this, data);
+            }
+        };
+        
+        // Also override res.json for JSON responses
+        res.json = function(data) {
+            try {
+                if (data != null) {
+                    try {
+                        const jsonString = JSON.stringify(data);
+                        responseSize = Buffer.byteLength(jsonString, 'utf8');
+                    } catch (error) {
+                        responseSize = 0;
+                        console.error('[HTTP] Error calculating JSON response size:', error.message);
+                    }
+                }
+                return originalJson.call(this, data);
+            } catch (error) {
+                console.error('[HTTP] Error in res.json override:', error.message);
+                return originalJson.call(this, data);
+            }
+        };
+        
+        // Log when response finishes
+        res.on('finish', () => {
+            try {
+                const duration = Date.now() - startTime;
+                const ip = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 
+                          (req.connection?.socket ? req.connection.socket.remoteAddress : null) || 'Unknown';
+                const userAgent = req.get('User-Agent') || 'Unknown';
+                const contentLength = req.get('Content-Length') || '0';
+                
+                console.log(`[HTTP] ${new Date().toISOString()} | ${req.method} ${req.originalUrl || req.url} | ${res.statusCode} | ${ip} | ${duration}ms | Req: ${contentLength}B | Res: ${responseSize}B | UA: ${userAgent}`);
+            } catch (error) {
+                console.error('[HTTP] Error logging request:', error.message);
+            }
+        });
+        
+        // Handle errors on the response object
+        res.on('error', (error) => {
+            console.error('[HTTP] Response error:', error.message);
+        });
+        
+        next();
+    } catch (error) {
+        console.error('[HTTP] Error in logging middleware:', error.message);
+        next(); // Continue even if logging fails
+    }
 });
 
 // Store messages in memory (simple array)
@@ -58,33 +112,37 @@ const PRESENCE_TIMEOUT = 15000; // 15 seconds of inactivity before going DND
 
 // Function to update bot presence
 async function updateBotPresence() {
-    if (!client.user) return;
-    
-    const now = Date.now();
-    const timeSinceLastRequest = now - lastApiRequest;
-    
-    if (timeSinceLastRequest < PRESENCE_TIMEOUT && !isOnline) {
-        // Set to online
-        await client.user.setPresence({
-            status: 'online',
-            activities: [{
-                name: 'Web Chat Active',
-                type: 0 // Playing
-            }]
-        });
-        isOnline = true;
-        console.log('[BOT] Bot status set to online');
-    } else if (timeSinceLastRequest >= PRESENCE_TIMEOUT && isOnline) {
-        // Set to DND
-        await client.user.setPresence({
-            status: 'dnd',
-            activities: [{
-                name: 'Web Chat Idle',
-                type: 0 // Playing
-            }]
-        });
-        isOnline = false;
-        console.log('[BOT] Bot status set to DND');
+    try {
+        if (!client.user) return;
+        
+        const now = Date.now();
+        const timeSinceLastRequest = now - lastApiRequest;
+        
+        if (timeSinceLastRequest < PRESENCE_TIMEOUT && !isOnline) {
+            // Set to online
+            await client.user.setPresence({
+                status: 'online',
+                activities: [{
+                    name: 'Web Chat Active',
+                    type: 0 // Playing
+                }]
+            });
+            isOnline = true;
+            console.log('[BOT] Bot status set to online');
+        } else if (timeSinceLastRequest >= PRESENCE_TIMEOUT && isOnline) {
+            // Set to DND
+            await client.user.setPresence({
+                status: 'dnd',
+                activities: [{
+                    name: 'Web Chat Idle',
+                    type: 0 // Playing
+                }]
+            });
+            isOnline = false;
+            console.log('[BOT] Bot status set to DND');
+        }
+    } catch (error) {
+        console.error('[BOT] Error updating bot presence:', error.message);
     }
 }
 
@@ -150,19 +208,43 @@ const client = new Client({
 
 // Bot ready event
 client.once('ready', async () => {
-    console.log(`[BOT] Discord bot logged in as ${client.user.tag}`);
-    
-    // Set initial presence to DND
-    await client.user.setPresence({
-        status: 'dnd',
-        activities: [{
-            name: 'Web Chat Idle',
-            type: 0 // Playing
-        }]
-    });
-    
-    // Fetch initial message history
-    await fetchDiscordHistory();
+    try {
+        console.log(`[BOT] Discord bot logged in as ${client.user.tag}`);
+        
+        // Set initial presence to DND
+        await client.user.setPresence({
+            status: 'dnd',
+            activities: [{
+                name: 'Web Chat Idle',
+                type: 0 // Playing
+            }]
+        });
+        
+        // Fetch initial message history
+        await fetchDiscordHistory();
+    } catch (error) {
+        console.error('[BOT] Error in ready event:', error.message);
+    }
+});
+
+// Add error event handler for Discord client
+client.on('error', (error) => {
+    console.error('[BOT] Discord client error:', error.message);
+});
+
+// Add warning event handler
+client.on('warn', (warning) => {
+    console.warn('[BOT] Discord client warning:', warning);
+});
+
+// Add disconnect handler
+client.on('disconnect', () => {
+    console.log('[BOT] Discord client disconnected');
+});
+
+// Add reconnecting handler
+client.on('reconnecting', () => {
+    console.log('[BOT] Discord client reconnecting...');
 });
 
 // Function to fetch Discord message history (last 7 days)
@@ -304,138 +386,150 @@ async function triggerDiscordTyping(channelId) {
         await channel.sendTyping();
         console.log('[BOT] Typing indicator sent to Discord');
     } catch (error) {
-        console.error('[BOT] Error sending typing indicator:', error);
+        console.error('[BOT] Error sending typing indicator:', error.message);
     }
 }
 
 // Listen for messages from Discord
 client.on('messageCreate', async (message) => {
-    // Check if it's a DM with the specified user or a message in the specified channel
-    const isTargetDM = message.channel.type === 1 && 
-        (message.author.id === process.env.DISCORD_CHANNEL_ID || 
-         (message.channel.recipient && message.channel.recipient.id === process.env.DISCORD_CHANNEL_ID));
-    const isTargetChannel = message.channel.id === process.env.DISCORD_CHANNEL_ID;
-    
-    if (!isTargetDM && !isTargetChannel) return;
-    
-    // Don't process messages from our own bot
-    if (message.author.id === process.env.DISCORD_BOT_CLIENT_ID) return;
-    
-    // Extract media URLs from message
-    const mediaUrls = [];
-    
-    // Check for attachments (images, files)
-    if (message.attachments.size > 0) {
-        message.attachments.forEach(attachment => {
-            if (attachment.contentType && attachment.contentType.startsWith('image/')) {
-                mediaUrls.push({
-                    url: attachment.url,
-                    type: 'image',
-                    filename: attachment.name
-                });
-            }
-        });
-    }
-    
-    // Check for embeds (links that Discord auto-embeds)
-    if (message.embeds.length > 0) {
-        message.embeds.forEach(embed => {
-            if (embed.image) {
-                mediaUrls.push({
-                    url: embed.image.url,
-                    type: 'image',
-                    filename: 'embedded_image'
-                });
-            }
-            if (embed.thumbnail) {
-                mediaUrls.push({
-                    url: embed.thumbnail.url,
-                    type: 'image',
-                    filename: 'thumbnail'
-                });
-            }
-        });
-    }
-    
-    // Check for URLs in message content that might be images
-    const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|bmp|svg))/gi;
-    const urlMatches = message.content.match(urlRegex);
-    if (urlMatches) {
-        urlMatches.forEach(url => {
-            mediaUrls.push({
-                url: url,
-                type: 'image',
-                filename: 'linked_image'
-            });
-        });
-    }
-    
-    // Determine message source
-    let source = 'Discord';
-    let isBot = false;
-    
-    if (message.author.bot) {
-        isBot = true;
-        if (message.webhookId) {
-            source = 'Webhook';
-        } else {
-            source = 'Bot';
-        }
-    }
-    
-    // Handle Discord replies
-    let replyTo = null;
-    if (message.reference && message.reference.messageId) {
+    try {
+        // Check if it's a DM with the specified user or a message in the specified channel
+        const isTargetDM = message.channel.type === 1 && 
+            (message.author.id === process.env.DISCORD_CHANNEL_ID || 
+             (message.channel.recipient && message.channel.recipient.id === process.env.DISCORD_CHANNEL_ID));
+        const isTargetChannel = message.channel.id === process.env.DISCORD_CHANNEL_ID;
+        
+        if (!isTargetDM && !isTargetChannel) return;
+        
+        // Don't process messages from our own bot
+        if (message.author.id === process.env.DISCORD_BOT_CLIENT_ID) return;
+        
+        // Extract media URLs from message
+        const mediaUrls = [];
+        
         try {
-            const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
-            if (referencedMessage) {
-                let originalAuthor = referencedMessage.author.username;
-                let originalContent = referencedMessage.content;
-                
-                // If replying to a bot message, extract the original web username
-                if (referencedMessage.author.bot && referencedMessage.content.startsWith('**')) {
-                    const match = referencedMessage.content.match(/^\*\*([^*]+)\*\*: (.*)/);
-                    if (match) {
-                        originalAuthor = match[1]; // Extract web username
-                        originalContent = match[2]; // Extract actual message content
+            // Check for attachments (images, files)
+            if (message.attachments.size > 0) {
+                message.attachments.forEach(attachment => {
+                    if (attachment.contentType && attachment.contentType.startsWith('image/')) {
+                        mediaUrls.push({
+                            url: attachment.url,
+                            type: 'image',
+                            filename: attachment.name
+                        });
                     }
-                }
-                
-                replyTo = {
-                    id: referencedMessage.id,
-                    author: originalAuthor,
-                    content: originalContent,
-                    timestamp: referencedMessage.createdAt.toISOString()
-                };
+                });
+            }
+            
+            // Check for embeds (links that Discord auto-embeds)
+            if (message.embeds.length > 0) {
+                message.embeds.forEach(embed => {
+                    if (embed.image) {
+                        mediaUrls.push({
+                            url: embed.image.url,
+                            type: 'image',
+                            filename: 'embedded_image'
+                        });
+                    }
+                    if (embed.thumbnail) {
+                        mediaUrls.push({
+                            url: embed.thumbnail.url,
+                            type: 'image',
+                            filename: 'thumbnail'
+                        });
+                    }
+                });
+            }
+            
+            // Check for URLs in message content that might be images
+            const urlRegex = /(https?:\/\/[^\s]+\.(jpg|jpeg|png|gif|webp|bmp|svg))/gi;
+            const urlMatches = message.content.match(urlRegex);
+            if (urlMatches) {
+                urlMatches.forEach(url => {
+                    mediaUrls.push({
+                        url: url,
+                        type: 'image',
+                        filename: 'linked_image'
+                    });
+                });
             }
         } catch (error) {
-            console.log('[BOT] Could not fetch referenced message:', error.message);
+            console.error('[BOT] Error processing message media:', error.message);
         }
-    }
+        
+        // Determine message source
+        let source = 'Discord';
+        let isBot = false;
+        
+        if (message.author.bot) {
+            isBot = true;
+            if (message.webhookId) {
+                source = 'Webhook';
+            } else {
+                source = 'Bot';
+            }
+        }
+        
+        // Handle Discord replies
+        let replyTo = null;
+        if (message.reference && message.reference.messageId) {
+            try {
+                const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+                if (referencedMessage) {
+                    let originalAuthor = referencedMessage.author.username;
+                    let originalContent = referencedMessage.content;
+                    
+                    // If replying to a bot message, extract the original web username
+                    if (referencedMessage.author.bot && referencedMessage.content.startsWith('**')) {
+                        const match = referencedMessage.content.match(/^\*\*([^*]+)\*\*: (.*)/);
+                        if (match) {
+                            originalAuthor = match[1]; // Extract web username
+                            originalContent = match[2]; // Extract actual message content
+                        }
+                    }
+                    
+                    replyTo = {
+                        id: referencedMessage.id,
+                        author: originalAuthor,
+                        content: originalContent,
+                        timestamp: referencedMessage.createdAt.toISOString()
+                    };
+                }
+            } catch (error) {
+                console.log('[BOT] Could not fetch referenced message:', error.message);
+            }
+        }
 
-    // Add message to our array
-    const messageData = {
-        id: message.id,
-        author: message.author.username,
-        content: message.content,
-        timestamp: new Date().toISOString(),
-        source: source,
-        isBot: isBot,
-        media: mediaUrls,
-        replyTo: replyTo
-    };
-    
-    messages.push(messageData);
-    
-    // Keep only last MAX_MESSAGES
-    if (messages.length > MAX_MESSAGES) {
-        messages = messages.slice(-MAX_MESSAGES);
+        // Add message to our array
+        const messageData = {
+            id: message.id,
+            author: message.author.username || 'Unknown',
+            content: message.content || '',
+            timestamp: new Date().toISOString(),
+            source: source,
+            isBot: isBot,
+            media: mediaUrls,
+            replyTo: replyTo
+        };
+        
+        messages.push(messageData);
+        
+        // Keep only last MAX_MESSAGES
+        if (messages.length > MAX_MESSAGES) {
+            messages = messages.slice(-MAX_MESSAGES);
+        }
+        
+        // Log the received message
+        try {
+            const mediaInfo = mediaUrls.length > 0 ? ` [Media: ${mediaUrls.length} items]` : '';
+            const replyInfo = replyTo ? ` [Reply to: ${replyTo.author}]` : '';
+            console.log(`[MSG_IN] ${new Date().toISOString()} | Discord | ${message.author.username || 'Unknown'}: ${message.content || '(empty)'}${mediaInfo}${replyInfo}`);
+        } catch (error) {
+            console.error('[BOT] Error logging received message:', error.message);
+        }
+    } catch (error) {
+        console.error('[BOT] Error processing Discord message:', error.message);
     }
-    
-    // Log the received message
-    const mediaInfo = mediaUrls.length > 0 ? ` [Media: ${mediaUrls.length} items]` : '';
-    const replyInfo = replyTo ? ` [Reply to: ${replyTo.author}]` : '';
-    console.log(`[MSG_IN] ${new Date().toISOString()} | Discord | ${message.author.username}: ${message.content}${mediaInfo}${replyInfo}`);
 });
 
 
@@ -444,37 +538,52 @@ client.on('messageCreate', async (message) => {
 
 // Password validation endpoint with rate limiting
 app.post('/api/validate-password', passwordRateLimit, (req, res) => {
-    const { password } = req.body;
-    const isValid = password === process.env.CHAT_PASSWORD;
-    res.json({ valid: isValid });
+    try {
+        const { password } = req.body;
+        const isValid = password === process.env.CHAT_PASSWORD;
+        res.json({ valid: isValid });
+    } catch (error) {
+        console.error('[API] Error validating password:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });
 
 // Get all messages (with password protection)
 app.post('/api/messages', (req, res) => {
-    const { password } = req.body;
-    if (password !== process.env.CHAT_PASSWORD) {
-        return res.status(401).json({ error: 'Invalid password' });
-    }
-    
-    // Update last API request time for presence management
-    lastApiRequest = Date.now();
-    
-    // Get current typing users (excluding expired ones)
-    const now = Date.now();
-    const activeTypingUsers = [];
-    
-    for (const [username, timestamp] of typingUsers.entries()) {
-        if (now - timestamp < 5000) { // 5 second timeout
-            activeTypingUsers.push(username);
-        } else {
-            typingUsers.delete(username);
+    try {
+        const { password } = req.body;
+        if (password !== process.env.CHAT_PASSWORD) {
+            return res.status(401).json({ error: 'Invalid password' });
         }
+        
+        // Update last API request time for presence management
+        lastApiRequest = Date.now();
+        
+        // Get current typing users (excluding expired ones)
+        const now = Date.now();
+        const activeTypingUsers = [];
+        
+        for (const [username, timestamp] of typingUsers.entries()) {
+            try {
+                if (now - timestamp < 5000) { // 5 second timeout
+                    activeTypingUsers.push(username);
+                } else {
+                    typingUsers.delete(username);
+                }
+            } catch (error) {
+                console.error('[API] Error processing typing user:', error.message);
+                typingUsers.delete(username); // Remove problematic entry
+            }
+        }
+        
+        res.json({ 
+            messages,
+            typing: activeTypingUsers
+        });
+    } catch (error) {
+        console.error('[API] Error getting messages:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
     }
-    
-    res.json({ 
-        messages,
-        typing: activeTypingUsers
-    });
 });
 
 // Handle typing indicators with rate limiting
@@ -639,10 +748,56 @@ ${message}`;
     }
 });
 
+// Global error handlers for uncaught exceptions and rejections
+process.on('uncaughtException', (error) => {
+    console.error('[FATAL] Uncaught Exception:', error.message);
+    console.error('[FATAL] Stack:', error.stack);
+    // Don't exit the process - let it continue running
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] Unhandled Rejection at:', promise);
+    console.error('[FATAL] Reason:', reason);
+    // Don't exit the process - let it continue running
+});
+
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
     console.log(`[SERVER] Server running on http://localhost:${PORT}`);
 });
 
+// Handle server errors
+server.on('error', (error) => {
+    console.error('[SERVER] Server error:', error.message);
+});
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+    console.log('[SERVER] Received SIGINT, shutting down gracefully...');
+    server.close(() => {
+        console.log('[SERVER] Server closed');
+        if (client) {
+            client.destroy();
+            console.log('[BOT] Discord client destroyed');
+        }
+        process.exit(0);
+    });
+});
+
+process.on('SIGTERM', () => {
+    console.log('[SERVER] Received SIGTERM, shutting down gracefully...');
+    server.close(() => {
+        console.log('[SERVER] Server closed');
+        if (client) {
+            client.destroy();
+            console.log('[BOT] Discord client destroyed');
+        }
+        process.exit(0);
+    });
+});
+
 // Login to Discord
-client.login(process.env.DISCORD_BOT_TOKEN).catch(console.error);
+client.login(process.env.DISCORD_BOT_TOKEN).catch((error) => {
+    console.error('[BOT] Failed to login to Discord:', error.message);
+    // Don't exit - allow the web server to continue running even if Discord fails
+});
