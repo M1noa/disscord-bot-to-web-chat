@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Switch Player</title>
+    <style>
+        body { background-color: #000; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #player_image { max-width: 100%; max-height: 100vh; }
+        #controls { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px; }
+        button { font-size: 20px; padding: 10px; }
+    </style>
+</head>
+<body>
+
+    <img id="player_image" src="frames/frame_00001.jpg" alt="Loading...">
+
+    <audio id="player_audio" src="audio.mp3"></audio>
+
+    <div id="controls">
+        <button id="play_pause_btn">Play</button>
+    </div>
+
+    <script src="player.js"></script>
+
+</body>
+</html>
