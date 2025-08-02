@@ -517,6 +517,99 @@
             color: var(--link-hover);
         }
         
+        /* Iframe Window Styles */
+        .iframe-window {
+            position: fixed;
+            background: var(--bg-color);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            min-width: 400px;
+            min-height: 300px;
+            z-index: 1001;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .iframe-header {
+            background: var(--input-bg);
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: move;
+            user-select: none;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .iframe-title {
+            color: var(--text-bright);
+            font-size: 14px;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            margin-right: 10px;
+        }
+        
+        .iframe-controls {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .iframe-btn {
+            background: none;
+            border: none;
+            color: var(--text-color);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            transition: background-color 0.2s;
+        }
+        
+        .iframe-btn:hover {
+            background: var(--button-hover);
+        }
+        
+        .iframe-close {
+            color: #ed4245 !important;
+        }
+        
+        .iframe-content {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .iframe-content iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: white;
+        }
+        
+        .iframe-resize-handle {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            cursor: nw-resize;
+            background: linear-gradient(-45deg, transparent 0%, transparent 40%, var(--border-color) 40%, var(--border-color) 60%, transparent 60%);
+        }
+        
+        .iframe-loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+        
         /* Notification styles */
         .notification {
             position: fixed;
@@ -672,6 +765,15 @@
                          <option value="5000">5 seconds</option>
                          <option value="10000">10 seconds (Slow)</option>
                      </select>
+                 </div>
+             </div>
+             
+             <div class="settings-group">
+                 <h3>Web Browser</h3>
+                 <div class="settings-item">
+                     <label for="iframeUrl">Website URL:</label>
+                     <input type="text" id="iframeUrl" placeholder="https://example.com" style="width: 70%; margin-right: 10px;">
+                     <button onclick="openIframeWindow()" style="padding: 8px 16px;">Open</button>
                  </div>
              </div>
              
@@ -1689,6 +1791,159 @@
                  }
              });
             
+            // Iframe Window Functions
+            let iframeWindowCounter = 0;
+            let activeIframeWindows = new Map();
+            
+            function openIframeWindow() {
+                const urlInput = document.getElementById('iframeUrl');
+                let url = urlInput.value.trim();
+                
+                if (!url) {
+                    alert('Please enter a URL');
+                    return;
+                }
+                
+                // Add protocol if missing
+                if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                    url = 'https://' + url;
+                }
+                
+                createIframeWindow(url);
+                urlInput.value = ''; // Clear input
+            }
+            
+            function createIframeWindow(url) {
+                const windowId = 'iframe-window-' + (++iframeWindowCounter);
+                
+                // Create window element
+                const windowEl = document.createElement('div');
+                windowEl.className = 'iframe-window';
+                windowEl.id = windowId;
+                windowEl.style.left = (50 + (iframeWindowCounter * 30)) + 'px';
+                windowEl.style.top = (50 + (iframeWindowCounter * 30)) + 'px';
+                windowEl.style.width = '800px';
+                windowEl.style.height = '600px';
+                
+                // Get domain for title
+                let domain;
+                try {
+                    domain = new URL(url).hostname;
+                } catch {
+                    domain = url;
+                }
+                
+                windowEl.innerHTML = `
+                    <div class="iframe-header">
+                        <div class="iframe-title">${domain}</div>
+                        <div class="iframe-controls">
+                            <button class="iframe-btn" onclick="refreshIframe('${windowId}')">↻</button>
+                            <button class="iframe-btn iframe-close" onclick="closeIframeWindow('${windowId}')">×</button>
+                        </div>
+                    </div>
+                    <div class="iframe-content">
+                        <div class="iframe-loading">Loading...</div>
+                        <iframe src="${url}" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+                        <div class="iframe-resize-handle"></div>
+                    </div>
+                `;
+                
+                document.body.appendChild(windowEl);
+                activeIframeWindows.set(windowId, { url, element: windowEl });
+                
+                // Make draggable
+                makeDraggable(windowEl);
+                
+                // Make resizable
+                makeResizable(windowEl);
+                
+                // Hide loading when iframe loads
+                const iframe = windowEl.querySelector('iframe');
+                iframe.onload = () => {
+                    windowEl.querySelector('.iframe-loading').style.display = 'none';
+                };
+            }
+            
+            function closeIframeWindow(windowId) {
+                const windowData = activeIframeWindows.get(windowId);
+                if (windowData) {
+                    windowData.element.remove();
+                    activeIframeWindows.delete(windowId);
+                }
+            }
+            
+            function refreshIframe(windowId) {
+                const windowData = activeIframeWindows.get(windowId);
+                if (windowData) {
+                    const iframe = windowData.element.querySelector('iframe');
+                    const loading = windowData.element.querySelector('.iframe-loading');
+                    loading.style.display = 'block';
+                    iframe.src = iframe.src;
+                }
+            }
+            
+            function makeDraggable(element) {
+                const header = element.querySelector('.iframe-header');
+                let isDragging = false;
+                let startX, startY, startLeft, startTop;
+                
+                header.addEventListener('mousedown', (e) => {
+                    if (e.target.closest('.iframe-btn')) return;
+                    isDragging = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startLeft = parseInt(element.style.left);
+                    startTop = parseInt(element.style.top);
+                    element.style.zIndex = 1002;
+                });
+                
+                document.addEventListener('mousemove', (e) => {
+                    if (!isDragging) return;
+                    e.preventDefault();
+                    const deltaX = e.clientX - startX;
+                    const deltaY = e.clientY - startY;
+                    element.style.left = (startLeft + deltaX) + 'px';
+                    element.style.top = (startTop + deltaY) + 'px';
+                });
+                
+                document.addEventListener('mouseup', () => {
+                    if (isDragging) {
+                        isDragging = false;
+                        element.style.zIndex = 1001;
+                    }
+                });
+            }
+            
+            function makeResizable(element) {
+                const resizeHandle = element.querySelector('.iframe-resize-handle');
+                let isResizing = false;
+                let startX, startY, startWidth, startHeight;
+                
+                resizeHandle.addEventListener('mousedown', (e) => {
+                    isResizing = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startWidth = parseInt(element.style.width);
+                    startHeight = parseInt(element.style.height);
+                    e.preventDefault();
+                });
+                
+                document.addEventListener('mousemove', (e) => {
+                    if (!isResizing) return;
+                    e.preventDefault();
+                    const deltaX = e.clientX - startX;
+                    const deltaY = e.clientY - startY;
+                    const newWidth = Math.max(400, startWidth + deltaX);
+                    const newHeight = Math.max(300, startHeight + deltaY);
+                    element.style.width = newWidth + 'px';
+                    element.style.height = newHeight + 'px';
+                });
+                
+                document.addEventListener('mouseup', () => {
+                    isResizing = false;
+                });
+            }
+            
             // Close settings modal when clicking outside
             document.getElementById('settingsModal').addEventListener('click', function(e) {
                 if (e.target === this) {
@@ -1707,6 +1962,16 @@
             document.getElementById('usernameInput').addEventListener('input', function(e) {
                 const username = e.target.value.trim() || 'elianka';
                 currentUsername = username;
+            });
+            
+            // Web Browser iframe functionality
+            document.getElementById('openIframeBtn').addEventListener('click', openIframeWindow);
+            
+            // Allow Enter key to open iframe
+            document.getElementById('iframeUrl').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    openIframeWindow();
+                }
             });
             
             document.addEventListener('click', initAudio, { once: true });
