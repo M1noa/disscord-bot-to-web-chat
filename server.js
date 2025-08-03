@@ -321,6 +321,14 @@ async function fetchDiscordHistory() {
                     });
                 }
                 
+                // Parse emojis from message content
+                const emojis = parseEmojis(msg.content);
+                mediaUrls.push(...emojis);
+                
+                // Parse stickers from message
+                const stickers = parseStickers(msg);
+                mediaUrls.push(...stickers);
+                
                 // Determine message source
                 let source = 'Discord';
                 let isBot = false;
@@ -367,6 +375,63 @@ async function fetchDiscordHistory() {
     } catch (error) {
         console.error('[BOT] Error fetching Discord history:', error);
     }
+}
+
+// Function to get emoji URL
+function getEmojiUrl(emojiId, animated = false) {
+    const extension = animated ? 'gif' : 'png';
+    return `https://cdn.discordapp.com/emojis/${emojiId}.${extension}`;
+}
+
+// Function to get sticker URL
+function getStickerUrl(stickerId, format) {
+    // Format can be PNG, APNG, or LOTTIE
+    const extension = format === 'LOTTIE' ? 'json' : 'png';
+    return `https://cdn.discordapp.com/stickers/${stickerId}.${extension}`;
+}
+
+// Function to parse emojis from message content
+function parseEmojis(content) {
+    const emojis = [];
+    const emojiRegex = /<(a?):(\w+):(\d+)>/g;
+    let match;
+    
+    while ((match = emojiRegex.exec(content)) !== null) {
+        const animated = match[1] === 'a';
+        const emojiName = match[2];
+        const emojiId = match[3];
+        const emojiUrl = getEmojiUrl(emojiId, animated);
+        
+        emojis.push({
+            url: emojiUrl,
+            type: 'emoji',
+            name: emojiName,
+            animated: animated,
+            id: emojiId
+        });
+    }
+    
+    return emojis;
+}
+
+// Function to parse stickers from Discord message
+function parseStickers(message) {
+    const stickers = [];
+    
+    if (message.stickers && message.stickers.size > 0) {
+        message.stickers.forEach(sticker => {
+            const stickerUrl = getStickerUrl(sticker.id, sticker.format);
+            stickers.push({
+                url: stickerUrl,
+                type: 'sticker',
+                name: sticker.name,
+                format: sticker.format,
+                id: sticker.id
+            });
+        });
+    }
+    
+    return stickers;
 }
 
 // Function to trigger typing indicator in Discord
@@ -453,6 +518,14 @@ client.on('messageCreate', async (message) => {
                     });
                 });
             }
+            
+            // Parse emojis from message content
+            const emojis = parseEmojis(message.content);
+            mediaUrls.push(...emojis);
+            
+            // Parse stickers from message
+            const stickers = parseStickers(message);
+            mediaUrls.push(...stickers);
         } catch (error) {
             console.error('[BOT] Error processing message media:', error.message);
         }
